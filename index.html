@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <title>MediaPipe Eye Snap Demo</title>
+    <title>MediaPipe Hand Cursor Demo</title>
     <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
@@ -17,8 +17,8 @@
       <section class="workspace">
         <header class="header">
           <div>
-            <h1>Eye snap</h1>
-            <p id="hint">Use your gaze like a remote: look left/right/up/down to move one cell.</p>
+            <h1>Hand cursor</h1>
+            <p id="hint">Point with your index finger. Pinch thumb and index finger to select.</p>
           </div>
           <button id="startButton" class="primary">Start</button>
         </header>
@@ -38,30 +38,18 @@
           </div>
         </section>
 
-        <section class="calibration">
-          <div class="section-title">Calibration</div>
-          <div class="calibration-buttons">
-            <button data-calibrate="center">Center</button>
-            <button data-calibrate="left">Left</button>
-            <button data-calibrate="right">Right</button>
-            <button data-calibrate="up">Up</button>
-            <button data-calibrate="down">Down</button>
-            <button id="resetCalibration">Reset</button>
-          </div>
-        </section>
-
         <section class="intent">
-          <div class="section-title">Intent</div>
+          <div class="section-title">Pinch</div>
           <div class="intent-row">
-            <div id="intentText" class="intent-text">center</div>
-            <div class="intent-track"><div id="intentFill" class="intent-fill"></div></div>
+            <div id="pinchText" class="intent-text">open</div>
+            <div class="intent-track"><div id="pinchFill" class="intent-fill"></div></div>
           </div>
         </section>
 
         <section class="metrics">
           <div><span>FPS</span><strong id="fps">0</strong></div>
-          <div><span>Landmarks</span><strong id="landmarks">0</strong></div>
-          <div><span>Iris</span><strong id="iris">No</strong></div>
+          <div><span>Hand points</span><strong id="landmarks">0</strong></div>
+          <div><span>Pinch</span><strong id="pinch">No</strong></div>
           <div><span>Cell</span><strong id="cell">5</strong></div>
           <div><span>X</span><strong id="xValue">0.50</strong></div>
           <div><span>Y</span><strong id="yValue">0.50</strong></div>

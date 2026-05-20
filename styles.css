@@ -142,6 +142,11 @@ p {
   color: #0f172a;
 }
 
+.grid button.confirmed {
+  background: var(--accent);
+  color: var(--text);
+}
+
 .cursor {
   position: absolute;
   z-index: 3;
@@ -170,7 +175,6 @@ p {
   transform: translate(-50%, -50%);
 }
 
-.calibration,
 .intent {
   margin-top: 22px;
   padding: 18px;
@@ -185,20 +189,6 @@ p {
   font-size: 14px;
   font-weight: 800;
   text-transform: uppercase;
-}
-
-.calibration-buttons {
-  display: grid;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
-  gap: 10px;
-}
-
-.calibration-buttons button {
-  min-height: 44px;
-}
-
-.calibration-buttons button.done {
-  background: #0f766e;
 }
 
 .intent-row {
@@ -271,10 +261,6 @@ p {
 
   h1 {
     font-size: 34px;
-  }
-
-  .calibration-buttons {
-    grid-template-columns: repeat(3, 1fr);
   }
 
   .metrics {

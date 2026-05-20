@@ -1,6 +1,6 @@
 import {
-  FaceLandmarker,
-  FilesetResolver
+  FilesetResolver,
+  HandLandmarker
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision"
 
 const video = document.querySelector("#video")
@@ -10,19 +10,18 @@ const statusEl = document.querySelector("#status")
 const startButton = document.querySelector("#startButton")
 const cursor = document.querySelector("#cursor")
 const gridButtons = [...document.querySelectorAll("[data-cell]")]
-const calibrationButtons = [...document.querySelectorAll("[data-calibrate]")]
 
 const metrics = {
   fps: document.querySelector("#fps"),
   landmarks: document.querySelector("#landmarks"),
-  iris: document.querySelector("#iris"),
+  pinch: document.querySelector("#pinch"),
   cell: document.querySelector("#cell"),
   x: document.querySelector("#xValue"),
   y: document.querySelector("#yValue")
 }
 
-const intentText = document.querySelector("#intentText")
-const intentFill = document.querySelector("#intentFill")
+const pinchText = document.querySelector("#pinchText")
+const pinchFill = document.querySelector("#pinchFill")
 
 const state = {
   landmarker: null,
@@ -31,44 +30,20 @@ const state = {
   frames: 0,
   fpsAt: performance.now(),
   activeCell: 5,
-  candidateCell: 5,
-  remoteCell: 5,
+  confirmedCell: 0,
   cursor: { x: 0.5, y: 0.5 },
-  calibration: {},
-  intent: "center",
-  intentCount: 0,
-  triggerAfter: 5,
-  cooldown: 0
-}
-
-const targets = {
-  center: { x: 0.5, y: 0.5 },
-  left: { x: 0.18, y: 0.5 },
-  right: { x: 0.82, y: 0.5 },
-  up: { x: 0.5, y: 0.18 },
-  down: { x: 0.5, y: 0.82 }
+  pinchCount: 0,
+  pinchAfter: 4,
+  clickCooldown: 0
 }
 
 startButton.addEventListener("click", start)
-document.querySelector("#resetCalibration").addEventListener("click", () => {
-  state.calibration = {}
-  calibrationButtons.forEach((button) => button.classList.remove("done"))
-})
-
-calibrationButtons.forEach((button) => {
-  button.addEventListener("click", () => {
-    if (!state.lastFeature) return
-    const name = button.dataset.calibrate
-    state.calibration[name] = { ...state.lastFeature }
-    button.classList.add("done")
-  })
-})
 
 async function start() {
   try {
     startButton.disabled = true
     startButton.textContent = "Starting"
-    setStatus("Loading model")
+    setStatus("Loading hand model")
 
     const fileset = await withTimeout(
       FilesetResolver.forVisionTasks(
@@ -79,9 +54,9 @@ async function start() {
     )
 
     state.landmarker = await withTimeout(
-      createLandmarker(fileset),
+      createHandLandmarker(fileset),
       30000,
-      "Face model load timed out"
+      "Hand model load timed out"
     )
 
     setStatus("Requesting camera")
@@ -122,24 +97,24 @@ function withTimeout(promise, ms, message) {
   ])
 }
 
-async function createLandmarker(fileset) {
+async function createHandLandmarker(fileset) {
   const baseOptions = {
     modelAssetPath:
-      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+      "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
   }
 
   try {
-    return await FaceLandmarker.createFromOptions(fileset, {
+    return await HandLandmarker.createFromOptions(fileset, {
       baseOptions: { ...baseOptions, delegate: "GPU" },
       runningMode: "VIDEO",
-      numFaces: 1
+      numHands: 1
     })
   } catch (error) {
     setStatus("GPU failed, trying CPU")
-    return FaceLandmarker.createFromOptions(fileset, {
+    return HandLandmarker.createFromOptions(fileset, {
       baseOptions,
       runningMode: "VIDEO",
-      numFaces: 1
+      numHands: 1
     })
   }
 }
@@ -165,165 +140,78 @@ function handleResult(result) {
   resizeOverlay()
   ctx.clearRect(0, 0, overlay.width, overlay.height)
 
-  const landmarks = result.faceLandmarks && result.faceLandmarks[0]
-  metrics.landmarks.textContent = landmarks ? landmarks.length : 0
-  metrics.iris.textContent = landmarks && landmarks.length >= 478 ? "Yes" : "No"
+  const hand = result.landmarks && result.landmarks[0]
+  metrics.landmarks.textContent = hand ? hand.length : 0
 
-  if (!landmarks || landmarks.length < 478) {
-    statusEl.textContent = "No iris landmarks"
+  if (!hand) {
+    setStatus("Show one hand")
+    updatePinch(false, 0)
+    updateFps()
     return
   }
 
-  drawLandmarks(landmarks)
-  const feature = extractEyeFeature(landmarks)
-  state.lastFeature = feature
-  const point = calibratedPoint(feature)
-  applyRemoteIntent(point)
+  setStatus("Hand detected")
+  drawHand(hand)
+
+  const indexTip = hand[8]
+  const thumbTip = hand[4]
+  const wrist = hand[0]
+  const middleBase = hand[9]
+  const handScale = Math.max(0.001, distance(wrist, middleBase))
+  const pinchDistance = distance(indexTip, thumbTip) / handScale
+  const pinching = pinchDistance < 0.72
+
+  const point = {
+    x: clamp(1 - indexTip.x, 0.02, 0.98),
+    y: clamp(indexTip.y, 0.02, 0.98)
+  }
+
+  moveCursor(point)
+  updatePinch(pinching, pinchDistance)
   updateFps()
 }
 
-function extractEyeFeature(landmarks) {
-  const rightEye = eyeFeature(landmarks, {
-    outer: 33,
-    inner: 133,
-    top: 159,
-    bottom: 145,
-    iris: [468, 469, 470, 471, 472]
-  })
-  const leftEye = eyeFeature(landmarks, {
-    outer: 263,
-    inner: 362,
-    top: 386,
-    bottom: 374,
-    iris: [473, 474, 475, 476, 477]
-  })
-
-  return {
-    x: (rightEye.x + leftEye.x) / 2,
-    y: (rightEye.y + leftEye.y) / 2
-  }
-}
-
-function eyeFeature(landmarks, indices) {
-  const outer = landmarks[indices.outer]
-  const inner = landmarks[indices.inner]
-  const top = landmarks[indices.top]
-  const bottom = landmarks[indices.bottom]
-  const iris = average(indices.iris.map((index) => landmarks[index]))
-  const center = {
-    x: (outer.x + inner.x) / 2,
-    y: (top.y + bottom.y) / 2
-  }
-  const width = Math.max(0.001, distance(outer, inner))
-  const height = Math.max(0.001, distance(top, bottom))
-
-  return {
-    x: (iris.x - center.x) / width,
-    y: (iris.y - center.y) / height
-  }
-}
-
-function calibratedPoint(feature) {
-  const c = state.calibration
-
-  let x = 0.5 + feature.x * 2.1
-  let y = 0.5 + feature.y * 1.35
-
-  if (c.center) {
-    const dx = feature.x - c.center.x
-    const dy = feature.y - c.center.y
-    const leftSpan = c.left ? Math.abs(c.left.x - c.center.x) : 0.08
-    const rightSpan = c.right ? Math.abs(c.right.x - c.center.x) : 0.08
-    const upSpan = c.up ? Math.abs(c.up.y - c.center.y) : 0.08
-    const downSpan = c.down ? Math.abs(c.down.y - c.center.y) : 0.08
-    const xSpan = dx < 0 ? leftSpan : rightSpan
-    const ySpan = dy < 0 ? upSpan : downSpan
-    x = 0.5 + dx / Math.max(0.025, xSpan) * 0.32
-    y = 0.5 + dy / Math.max(0.025, ySpan) * 0.32
-  }
-
-  return {
-    x: clamp(x, 0.04, 0.96),
-    y: clamp(y, 0.06, 0.94)
-  }
-}
-
-function applyRemoteIntent(point) {
-  const intent = intentFromPoint(point)
-
-  if (state.cooldown > 0) {
-    state.cooldown -= 1
-  }
-
-  if (intent === state.intent) {
-    state.intentCount = Math.min(state.intentCount + 1, state.triggerAfter)
-  } else {
-    state.intent = intent
-    state.intentCount = 1
-  }
-
-  const progress = state.intentCount / state.triggerAfter
-  intentText.textContent = intent
-  intentFill.style.width = `${Math.round(progress * 100)}%`
-
-  if (intent !== "center" && state.intentCount >= state.triggerAfter && state.cooldown <= 0) {
-    moveRemoteCell(intent)
-    state.cooldown = 6
-    state.intentCount = 0
-  }
-
-  snapCursorToCell(state.remoteCell)
-  metrics.x.textContent = point.x.toFixed(2)
-  metrics.y.textContent = point.y.toFixed(2)
-}
-
-function intentFromPoint(point) {
-  const dx = point.x - 0.5
-  const dy = point.y - 0.5
-  const xThreshold = 0.18
-  const yThreshold = 0.22
-
-  if (Math.abs(dx) < 0.1 && Math.abs(dy) < 0.12) return "center"
-  if (Math.abs(dx) / xThreshold > Math.abs(dy) / yThreshold) {
-    if (dx < -xThreshold) return "left"
-    if (dx > xThreshold) return "right"
-  } else {
-    if (dy < -yThreshold) return "up"
-    if (dy > yThreshold) return "down"
-  }
-  return "center"
-}
-
-function moveRemoteCell(intent) {
-  const cell = state.remoteCell
-  let column = (cell - 1) % 3
-  let row = Math.floor((cell - 1) / 3)
-
-  if (intent === "left") column = clamp(column - 1, 0, 2)
-  if (intent === "right") column = clamp(column + 1, 0, 2)
-  if (intent === "up") row = clamp(row - 1, 0, 2)
-  if (intent === "down") row = clamp(row + 1, 0, 2)
-
-  state.remoteCell = row * 3 + column + 1
-}
-
-function snapCursorToCell(cell) {
-  const column = (cell - 1) % 3
-  const row = Math.floor((cell - 1) / 3)
-  state.cursor.x = (column + 0.5) / 3
-  state.cursor.y = (row + 0.5) / 3
-  state.candidateCell = cell
-  state.activeCell = cell
+function moveCursor(point) {
+  state.cursor.x = state.cursor.x * 0.72 + point.x * 0.28
+  state.cursor.y = state.cursor.y * 0.72 + point.y * 0.28
 
   cursor.style.left = `${state.cursor.x * 100}%`
   cursor.style.top = `${state.cursor.y * 100}%`
+
+  const cell = cellFromPoint(state.cursor)
+  state.activeCell = cell
+
   gridButtons.forEach((button) => {
     const isCell = Number(button.dataset.cell) === cell
     button.classList.toggle("candidate", isCell)
     button.classList.toggle("active", isCell)
+    button.classList.toggle("confirmed", Number(button.dataset.cell) === state.confirmedCell)
   })
 
   metrics.cell.textContent = String(cell)
+  metrics.x.textContent = state.cursor.x.toFixed(2)
+  metrics.y.textContent = state.cursor.y.toFixed(2)
+}
+
+function updatePinch(pinching, pinchDistance) {
+  if (state.clickCooldown > 0) state.clickCooldown -= 1
+
+  if (pinching) {
+    state.pinchCount = Math.min(state.pinchCount + 1, state.pinchAfter)
+  } else {
+    state.pinchCount = 0
+  }
+
+  if (pinching && state.pinchCount >= state.pinchAfter && state.clickCooldown <= 0) {
+    state.confirmedCell = state.activeCell
+    state.clickCooldown = 12
+  }
+
+  const percent = Math.round((state.pinchCount / state.pinchAfter) * 100)
+  pinchText.textContent = pinching ? "pinch" : "open"
+  pinchFill.style.width = `${percent}%`
+  metrics.pinch.textContent = pinching ? "Yes" : "No"
+  metrics.x.title = `pinch distance ${pinchDistance.toFixed(2)}`
 }
 
 function cellFromPoint(point) {
@@ -332,19 +220,35 @@ function cellFromPoint(point) {
   return row * 3 + column + 1
 }
 
-function drawLandmarks(landmarks) {
-  const irisIds = [468, 469, 470, 471, 472, 473, 474, 475, 476, 477]
+function drawHand(hand) {
   ctx.save()
   ctx.scale(-1, 1)
   ctx.translate(-overlay.width, 0)
 
-  for (const index of irisIds) {
-    const point = landmarks[index]
+  const links = [
+    [0, 1], [1, 2], [2, 3], [3, 4],
+    [0, 5], [5, 6], [6, 7], [7, 8],
+    [5, 9], [9, 10], [10, 11], [11, 12],
+    [9, 13], [13, 14], [14, 15], [15, 16],
+    [13, 17], [17, 18], [18, 19], [19, 20],
+    [0, 17]
+  ]
+
+  ctx.lineWidth = 3
+  ctx.strokeStyle = "rgba(45, 212, 191, 0.9)"
+  for (const [a, b] of links) {
     ctx.beginPath()
-    ctx.arc(point.x * overlay.width, point.y * overlay.height, 4, 0, Math.PI * 2)
-    ctx.fillStyle = "#fbbf24"
-    ctx.fill()
+    ctx.moveTo(hand[a].x * overlay.width, hand[a].y * overlay.height)
+    ctx.lineTo(hand[b].x * overlay.width, hand[b].y * overlay.height)
+    ctx.stroke()
   }
+
+  hand.forEach((point, index) => {
+    ctx.beginPath()
+    ctx.arc(point.x * overlay.width, point.y * overlay.height, index === 8 ? 7 : 4, 0, Math.PI * 2)
+    ctx.fillStyle = index === 8 ? "#fbbf24" : "#ffffff"
+    ctx.fill()
+  })
 
   ctx.restore()
 }
@@ -366,17 +270,6 @@ function updateFps() {
     metrics.fps.textContent = String(state.frames)
     state.frames = 0
     state.fpsAt = now
-  }
-}
-
-function average(points) {
-  const total = points.reduce((sum, point) => ({
-    x: sum.x + point.x,
-    y: sum.y + point.y
-  }), { x: 0, y: 0 })
-  return {
-    x: total.x / points.length,
-    y: total.y / points.length
   }
 }
 

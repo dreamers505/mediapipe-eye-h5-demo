@@ -87,6 +87,11 @@ button {
   gap: 20px;
 }
 
+.header-actions {
+  display: flex;
+  gap: 10px;
+}
+
 h1 {
   margin: 0;
   font-size: 42px;
@@ -103,6 +108,11 @@ p {
   min-width: 96px;
   height: 48px;
   background: var(--accent);
+}
+
+.secondary {
+  min-width: 86px;
+  height: 48px;
 }
 
 .grid-wrap {

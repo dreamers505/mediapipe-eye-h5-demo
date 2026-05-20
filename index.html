@@ -17,10 +17,13 @@
       <section class="workspace">
         <header class="header">
           <div>
-            <h1>Hand cursor</h1>
-            <p id="hint">Point with your index finger. Pinch thumb and index finger to select.</p>
+            <h1>Body cursor</h1>
+            <p id="hint">Use your index finger or nose as the cursor. Pinch or dwell to select.</p>
           </div>
-          <button id="startButton" class="primary">Start</button>
+          <div class="header-actions">
+            <button id="modeButton" class="secondary">Hand</button>
+            <button id="startButton" class="primary">Start</button>
+          </div>
         </header>
 
         <section class="grid-wrap">
@@ -39,17 +42,17 @@
         </section>
 
         <section class="intent">
-          <div class="section-title">Pinch</div>
+          <div class="section-title" id="actionTitle">Pinch</div>
           <div class="intent-row">
-            <div id="pinchText" class="intent-text">open</div>
-            <div class="intent-track"><div id="pinchFill" class="intent-fill"></div></div>
+            <div id="actionText" class="intent-text">open</div>
+            <div class="intent-track"><div id="actionFill" class="intent-fill"></div></div>
           </div>
         </section>
 
         <section class="metrics">
           <div><span>FPS</span><strong id="fps">0</strong></div>
-          <div><span>Hand points</span><strong id="landmarks">0</strong></div>
-          <div><span>Pinch</span><strong id="pinch">No</strong></div>
+          <div><span>Points</span><strong id="landmarks">0</strong></div>
+          <div><span>Action</span><strong id="action">No</strong></div>
           <div><span>Cell</span><strong id="cell">5</strong></div>
           <div><span>X</span><strong id="xValue">0.50</strong></div>
           <div><span>Y</span><strong id="yValue">0.50</strong></div>

@@ -1,4 +1,5 @@
 import {
+  FaceLandmarker,
   FilesetResolver,
   HandLandmarker
 } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision"
@@ -8,23 +9,27 @@ const overlay = document.querySelector("#overlay")
 const ctx = overlay.getContext("2d")
 const statusEl = document.querySelector("#status")
 const startButton = document.querySelector("#startButton")
+const modeButton = document.querySelector("#modeButton")
 const cursor = document.querySelector("#cursor")
 const gridButtons = [...document.querySelectorAll("[data-cell]")]
 
 const metrics = {
   fps: document.querySelector("#fps"),
   landmarks: document.querySelector("#landmarks"),
-  pinch: document.querySelector("#pinch"),
+  action: document.querySelector("#action"),
   cell: document.querySelector("#cell"),
   x: document.querySelector("#xValue"),
   y: document.querySelector("#yValue")
 }
 
-const pinchText = document.querySelector("#pinchText")
-const pinchFill = document.querySelector("#pinchFill")
+const actionTitle = document.querySelector("#actionTitle")
+const actionText = document.querySelector("#actionText")
+const actionFill = document.querySelector("#actionFill")
 
 const state = {
-  landmarker: null,
+  handLandmarker: null,
+  faceLandmarker: null,
+  mode: "hand",
   running: false,
   lastVideoTime: -1,
   frames: 0,
@@ -32,18 +37,29 @@ const state = {
   activeCell: 5,
   confirmedCell: 0,
   cursor: { x: 0.5, y: 0.5 },
-  pinchCount: 0,
-  pinchAfter: 4,
+  actionCount: 0,
+  actionAfter: 4,
+  dwellCell: 5,
+  dwellCount: 0,
+  dwellAfter: 18,
   clickCooldown: 0
 }
 
 startButton.addEventListener("click", start)
+modeButton.addEventListener("click", () => {
+  state.mode = state.mode === "hand" ? "nose" : "hand"
+  resetAction()
+  updateModeUI()
+})
+
+updateModeUI()
 
 async function start() {
   try {
     startButton.disabled = true
+    modeButton.disabled = true
     startButton.textContent = "Starting"
-    setStatus("Loading hand model")
+    setStatus("Loading models")
 
     const fileset = await withTimeout(
       FilesetResolver.forVisionTasks(
@@ -53,11 +69,8 @@ async function start() {
       "MediaPipe WASM load timed out"
     )
 
-    state.landmarker = await withTimeout(
-      createHandLandmarker(fileset),
-      30000,
-      "Hand model load timed out"
-    )
+    state.handLandmarker = await withTimeout(createHandLandmarker(fileset), 30000, "Hand model load timed out")
+    state.faceLandmarker = await withTimeout(createFaceLandmarker(fileset), 30000, "Face model load timed out")
 
     setStatus("Requesting camera")
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
@@ -79,10 +92,12 @@ async function start() {
     state.running = true
     setStatus("Running")
     startButton.textContent = "Running"
+    modeButton.disabled = false
     requestAnimationFrame(loop)
   } catch (error) {
     console.error(error)
     startButton.disabled = false
+    modeButton.disabled = false
     startButton.textContent = "Retry"
     setStatus(error && error.message ? error.message : String(error), true)
   }
@@ -102,7 +117,6 @@ async function createHandLandmarker(fileset) {
     modelAssetPath:
       "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/latest/hand_landmarker.task"
   }
-
   try {
     return await HandLandmarker.createFromOptions(fileset, {
       baseOptions: { ...baseOptions, delegate: "GPU" },
@@ -110,7 +124,7 @@ async function createHandLandmarker(fileset) {
       numHands: 1
     })
   } catch (error) {
-    setStatus("GPU failed, trying CPU")
+    setStatus("Hand GPU failed, trying CPU")
     return HandLandmarker.createFromOptions(fileset, {
       baseOptions,
       runningMode: "VIDEO",
@@ -119,9 +133,25 @@ async function createHandLandmarker(fileset) {
   }
 }
 
-function setStatus(message, failed = false) {
-  statusEl.textContent = message
-  statusEl.classList.toggle("failed", failed)
+async function createFaceLandmarker(fileset) {
+  const baseOptions = {
+    modelAssetPath:
+      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+  }
+  try {
+    return await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { ...baseOptions, delegate: "GPU" },
+      runningMode: "VIDEO",
+      numFaces: 1
+    })
+  } catch (error) {
+    setStatus("Face GPU failed, trying CPU")
+    return FaceLandmarker.createFromOptions(fileset, {
+      baseOptions,
+      runningMode: "VIDEO",
+      numFaces: 1
+    })
+  }
 }
 
 function loop() {
@@ -129,14 +159,17 @@ function loop() {
 
   if (video.currentTime !== state.lastVideoTime) {
     state.lastVideoTime = video.currentTime
-    const result = state.landmarker.detectForVideo(video, performance.now())
-    handleResult(result)
+    if (state.mode === "hand") {
+      handleHand(state.handLandmarker.detectForVideo(video, performance.now()))
+    } else {
+      handleNose(state.faceLandmarker.detectForVideo(video, performance.now()))
+    }
   }
 
   requestAnimationFrame(loop)
 }
 
-function handleResult(result) {
+function handleHand(result) {
   resizeOverlay()
   ctx.clearRect(0, 0, overlay.width, overlay.height)
 
@@ -145,7 +178,7 @@ function handleResult(result) {
 
   if (!hand) {
     setStatus("Show one hand")
-    updatePinch(false, 0)
+    updateAction(false, "open", 0)
     updateFps()
     return
   }
@@ -161,13 +194,36 @@ function handleResult(result) {
   const pinchDistance = distance(indexTip, thumbTip) / handScale
   const pinching = pinchDistance < 0.72
 
-  const point = {
+  moveCursor({
     x: clamp(1 - indexTip.x, 0.02, 0.98),
     y: clamp(indexTip.y, 0.02, 0.98)
+  })
+  updateAction(pinching, pinching ? "pinch" : "open", state.actionAfter)
+  updateFps()
+}
+
+function handleNose(result) {
+  resizeOverlay()
+  ctx.clearRect(0, 0, overlay.width, overlay.height)
+
+  const face = result.faceLandmarks && result.faceLandmarks[0]
+  metrics.landmarks.textContent = face ? face.length : 0
+
+  if (!face || !face[1]) {
+    setStatus("Show your face")
+    updateAction(false, "dwell", 0)
+    updateFps()
+    return
   }
 
-  moveCursor(point)
-  updatePinch(pinching, pinchDistance)
+  setStatus("Nose detected")
+  const nose = face[1]
+  drawNose(face)
+  moveCursor({
+    x: clamp(1 - nose.x, 0.02, 0.98),
+    y: clamp(nose.y, 0.02, 0.98)
+  })
+  updateDwell()
   updateFps()
 }
 
@@ -182,10 +238,10 @@ function moveCursor(point) {
   state.activeCell = cell
 
   gridButtons.forEach((button) => {
-    const isCell = Number(button.dataset.cell) === cell
-    button.classList.toggle("candidate", isCell)
-    button.classList.toggle("active", isCell)
-    button.classList.toggle("confirmed", Number(button.dataset.cell) === state.confirmedCell)
+    const value = Number(button.dataset.cell)
+    button.classList.toggle("candidate", value === cell)
+    button.classList.toggle("active", value === cell)
+    button.classList.toggle("confirmed", value === state.confirmedCell)
   })
 
   metrics.cell.textContent = String(cell)
@@ -193,25 +249,56 @@ function moveCursor(point) {
   metrics.y.textContent = state.cursor.y.toFixed(2)
 }
 
-function updatePinch(pinching, pinchDistance) {
+function updateAction(active, text, threshold) {
   if (state.clickCooldown > 0) state.clickCooldown -= 1
 
-  if (pinching) {
-    state.pinchCount = Math.min(state.pinchCount + 1, state.pinchAfter)
+  if (active) {
+    state.actionCount = Math.min(state.actionCount + 1, threshold)
   } else {
-    state.pinchCount = 0
+    state.actionCount = 0
   }
 
-  if (pinching && state.pinchCount >= state.pinchAfter && state.clickCooldown <= 0) {
+  if (active && state.actionCount >= threshold && state.clickCooldown <= 0) {
     state.confirmedCell = state.activeCell
     state.clickCooldown = 12
   }
 
-  const percent = Math.round((state.pinchCount / state.pinchAfter) * 100)
-  pinchText.textContent = pinching ? "pinch" : "open"
-  pinchFill.style.width = `${percent}%`
-  metrics.pinch.textContent = pinching ? "Yes" : "No"
-  metrics.x.title = `pinch distance ${pinchDistance.toFixed(2)}`
+  const percent = threshold ? Math.round((state.actionCount / threshold) * 100) : 0
+  actionText.textContent = text
+  actionFill.style.width = `${percent}%`
+  metrics.action.textContent = active ? "Yes" : "No"
+}
+
+function updateDwell() {
+  if (state.dwellCell === state.activeCell) {
+    state.dwellCount = Math.min(state.dwellCount + 1, state.dwellAfter)
+  } else {
+    state.dwellCell = state.activeCell
+    state.dwellCount = 1
+  }
+
+  if (state.dwellCount >= state.dwellAfter) {
+    state.confirmedCell = state.activeCell
+  }
+
+  const percent = Math.round((state.dwellCount / state.dwellAfter) * 100)
+  actionText.textContent = "dwell"
+  actionFill.style.width = `${percent}%`
+  metrics.action.textContent = percent >= 100 ? "Yes" : "No"
+}
+
+function resetAction() {
+  state.actionCount = 0
+  state.dwellCount = 0
+  state.dwellCell = state.activeCell
+  actionFill.style.width = "0%"
+}
+
+function updateModeUI() {
+  modeButton.textContent = state.mode === "hand" ? "Hand" : "Nose"
+  actionTitle.textContent = state.mode === "hand" ? "Pinch" : "Dwell"
+  actionText.textContent = state.mode === "hand" ? "open" : "dwell"
+  setStatus(state.mode === "hand" ? "Hand mode" : "Nose mode")
 }
 
 function cellFromPoint(point) {
@@ -253,6 +340,24 @@ function drawHand(hand) {
   ctx.restore()
 }
 
+function drawNose(face) {
+  ctx.save()
+  ctx.scale(-1, 1)
+  ctx.translate(-overlay.width, 0)
+
+  const noseIds = [1, 4, 5, 6, 168]
+  for (const index of noseIds) {
+    const point = face[index]
+    if (!point) continue
+    ctx.beginPath()
+    ctx.arc(point.x * overlay.width, point.y * overlay.height, index === 1 ? 8 : 4, 0, Math.PI * 2)
+    ctx.fillStyle = index === 1 ? "#fbbf24" : "#ffffff"
+    ctx.fill()
+  }
+
+  ctx.restore()
+}
+
 function resizeOverlay() {
   const rect = video.getBoundingClientRect()
   const width = Math.max(1, Math.round(rect.width * devicePixelRatio))
@@ -271,6 +376,11 @@ function updateFps() {
     state.frames = 0
     state.fpsAt = now
   }
+}
+
+function setStatus(message, failed = false) {
+  statusEl.textContent = message
+  statusEl.classList.toggle("failed", failed)
 }
 
 function distance(a, b) {

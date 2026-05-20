@@ -26,9 +26,7 @@ createServer(async (request, response) => {
 
     const content = await readFile(filePath)
     response.writeHead(200, {
-      "Content-Type": types[extname(filePath)] || "application/octet-stream",
-      "Cross-Origin-Opener-Policy": "same-origin",
-      "Cross-Origin-Embedder-Policy": "require-corp"
+      "Content-Type": types[extname(filePath)] || "application/octet-stream"
     })
     response.end(content)
   } catch (error) {

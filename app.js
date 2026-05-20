@@ -1,7 +1,7 @@
 import {
   FaceLandmarker,
   FilesetResolver
-} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22"
+} from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision"
 
 const video = document.querySelector("#video")
 const overlay = document.querySelector("#overlay")
@@ -57,37 +57,88 @@ calibrationButtons.forEach((button) => {
 })
 
 async function start() {
-  startButton.disabled = true
-  statusEl.textContent = "Loading model"
+  try {
+    startButton.disabled = true
+    startButton.textContent = "Starting"
+    setStatus("Loading model")
 
-  const fileset = await FilesetResolver.forVisionTasks(
-    "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.22/wasm"
-  )
+    const fileset = await withTimeout(
+      FilesetResolver.forVisionTasks(
+        "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@latest/wasm"
+      ),
+      20000,
+      "MediaPipe WASM load timed out"
+    )
 
-  state.landmarker = await FaceLandmarker.createFromOptions(fileset, {
-    baseOptions: {
-      modelAssetPath:
-        "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task",
-      delegate: "GPU"
-    },
-    runningMode: "VIDEO",
-    numFaces: 1
-  })
+    state.landmarker = await withTimeout(
+      createLandmarker(fileset),
+      30000,
+      "Face model load timed out"
+    )
 
-  const stream = await navigator.mediaDevices.getUserMedia({
-    video: {
-      facingMode: "user",
-      width: { ideal: 960 },
-      height: { ideal: 720 }
-    },
-    audio: false
-  })
+    setStatus("Requesting camera")
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
+      throw new Error("Camera API is unavailable. Use HTTPS or localhost.")
+    }
 
-  video.srcObject = stream
-  await video.play()
-  state.running = true
-  statusEl.textContent = "Running"
-  requestAnimationFrame(loop)
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: "user",
+        width: { ideal: 960 },
+        height: { ideal: 720 }
+      },
+      audio: false
+    })
+
+    setStatus("Starting video")
+    video.srcObject = stream
+    await video.play()
+    state.running = true
+    setStatus("Running")
+    startButton.textContent = "Running"
+    requestAnimationFrame(loop)
+  } catch (error) {
+    console.error(error)
+    startButton.disabled = false
+    startButton.textContent = "Retry"
+    setStatus(error && error.message ? error.message : String(error), true)
+  }
+}
+
+function withTimeout(promise, ms, message) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => {
+      setTimeout(() => reject(new Error(message)), ms)
+    })
+  ])
+}
+
+async function createLandmarker(fileset) {
+  const baseOptions = {
+    modelAssetPath:
+      "https://storage.googleapis.com/mediapipe-models/face_landmarker/face_landmarker/float16/latest/face_landmarker.task"
+  }
+
+  try {
+    return await FaceLandmarker.createFromOptions(fileset, {
+      baseOptions: { ...baseOptions, delegate: "GPU" },
+      runningMode: "VIDEO",
+      numFaces: 1
+    })
+  } catch (error) {
+    setStatus("GPU failed, trying CPU")
+    return FaceLandmarker.createFromOptions(fileset, {
+      baseOptions,
+      runningMode: "VIDEO",
+      numFaces: 1
+    })
+  }
+}
+
+function setStatus(message, failed = false) {
+  statusEl.textContent = message
+  statusEl.classList.toggle("failed", failed)
 }
 
 function loop() {

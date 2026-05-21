@@ -40,6 +40,8 @@ const state = {
   activeCell: 5,
   confirmedCell: 0,
   cursor: { x: 0.5, y: 0.5 },
+  handCursor: { x: 0.5, y: 0.5 },
+  noseCursor: { x: 0.5, y: 0.5 },
   actionCount: 0,
   actionAfter: 4,
   dwellCell: 5,
@@ -48,7 +50,7 @@ const state = {
   clickCooldown: 0,
   noseCenter: { x: 0.5, y: 0.5, ready: false },
   lastNose: { x: 0.5, y: 0.5 },
-  noseGain: 1
+  noseGain: 1.6
 }
 
 startButton.addEventListener("click", start)
@@ -212,10 +214,13 @@ function handleHand(result) {
   const pinchDistance = distance(indexTip, thumbTip) / handScale
   const pinching = pinchDistance < 0.72
 
-  moveCursor({
+  const point = {
     x: clamp(1 - indexTip.x, 0.02, 0.98),
     y: clamp(indexTip.y, 0.02, 0.98)
-  })
+  }
+  state.handCursor.x = state.handCursor.x * 0.72 + point.x * 0.28
+  state.handCursor.y = state.handCursor.y * 0.72 + point.y * 0.28
+  moveCursor(state.handCursor)
   updateAction(pinching, pinching ? "pinch" : "open", state.actionAfter)
   updateFps()
 }
@@ -246,7 +251,10 @@ function handleNose(result) {
   }
 
   drawNose(face)
-  moveCursor(mapNoseToCursor(rawNose))
+  const nosePoint = mapNoseToCursor(rawNose)
+  state.noseCursor.x = state.noseCursor.x * 0.38 + nosePoint.x * 0.62
+  state.noseCursor.y = state.noseCursor.y * 0.32 + nosePoint.y * 0.68
+  moveCursor(state.noseCursor)
   updateDwell()
   updateFps()
 }
@@ -255,10 +263,10 @@ function mapNoseToCursor(nose) {
   const center = state.noseCenter.ready ? state.noseCenter : { x: 0.5, y: 0.5 }
   const dx = nose.x - center.x
   const dy = nose.y - center.y
-  const deadX = 0.012
-  const deadY = 0.01
-  const shapedX = shapeAxis(Math.abs(dx) < deadX ? 0 : dx, 2.9 * state.noseGain)
-  const shapedY = shapeAxis(Math.abs(dy) < deadY ? 0 : dy, 4.8 * state.noseGain)
+  const deadX = 0.004
+  const deadY = 0.004
+  const shapedX = shapeAxis(Math.abs(dx) < deadX ? 0 : dx, 10.5 * state.noseGain)
+  const shapedY = shapeAxis(Math.abs(dy) < deadY ? 0 : dy, 16 * state.noseGain)
 
   return {
     x: clamp(0.5 + shapedX, 0.02, 0.98),
@@ -269,12 +277,12 @@ function mapNoseToCursor(nose) {
 function shapeAxis(value, gain) {
   const sign = value < 0 ? -1 : 1
   const magnitude = Math.abs(value)
-  return sign * Math.min(0.48, (magnitude * gain) + (magnitude * magnitude * gain * 5.2))
+  return sign * Math.min(0.48, (magnitude * gain) + (magnitude * magnitude * gain * 18))
 }
 
 function moveCursor(point) {
-  state.cursor.x = state.cursor.x * 0.72 + point.x * 0.28
-  state.cursor.y = state.cursor.y * 0.72 + point.y * 0.28
+  state.cursor.x = point.x
+  state.cursor.y = point.y
 
   cursor.style.left = `${state.cursor.x * 100}%`
   cursor.style.top = `${state.cursor.y * 100}%`

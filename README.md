@@ -1,6 +1,6 @@
 # MediaPipe Eye H5 Demo
 
-This demo validates eye-based grid snapping outside the WeChat mini program runtime.
+This demo validates camera-based cursor control outside the WeChat mini program runtime.
 
 It uses MediaPipe Face Landmarker through `@mediapipe/tasks-vision` and reads the iris landmarks:
 

@@ -10,6 +10,9 @@ const ctx = overlay.getContext("2d")
 const statusEl = document.querySelector("#status")
 const startButton = document.querySelector("#startButton")
 const modeButton = document.querySelector("#modeButton")
+const noseCenterButton = document.querySelector("#noseCenter")
+const noseLessButton = document.querySelector("#noseLess")
+const noseMoreButton = document.querySelector("#noseMore")
 const cursor = document.querySelector("#cursor")
 const gridButtons = [...document.querySelectorAll("[data-cell]")]
 
@@ -42,7 +45,10 @@ const state = {
   dwellCell: 5,
   dwellCount: 0,
   dwellAfter: 18,
-  clickCooldown: 0
+  clickCooldown: 0,
+  noseCenter: { x: 0.5, y: 0.5, ready: false },
+  lastNose: { x: 0.5, y: 0.5 },
+  noseGain: 1
 }
 
 startButton.addEventListener("click", start)
@@ -50,6 +56,18 @@ modeButton.addEventListener("click", () => {
   state.mode = state.mode === "hand" ? "nose" : "hand"
   resetAction()
   updateModeUI()
+})
+noseCenterButton.addEventListener("click", () => {
+  state.noseCenter = { ...state.lastNose, ready: true }
+  setStatus("Nose centered")
+})
+noseLessButton.addEventListener("click", () => {
+  state.noseGain = Math.max(0.6, state.noseGain - 0.2)
+  setStatus(`Nose gain ${state.noseGain.toFixed(1)}`)
+})
+noseMoreButton.addEventListener("click", () => {
+  state.noseGain = Math.min(2.2, state.noseGain + 0.2)
+  setStatus(`Nose gain ${state.noseGain.toFixed(1)}`)
 })
 
 updateModeUI()
@@ -218,13 +236,40 @@ function handleNose(result) {
 
   setStatus("Nose detected")
   const nose = face[1]
-  drawNose(face)
-  moveCursor({
+  const rawNose = {
     x: clamp(1 - nose.x, 0.02, 0.98),
     y: clamp(nose.y, 0.02, 0.98)
-  })
+  }
+  state.lastNose = rawNose
+  if (!state.noseCenter.ready) {
+    state.noseCenter = { ...rawNose, ready: true }
+  }
+
+  drawNose(face)
+  moveCursor(mapNoseToCursor(rawNose))
   updateDwell()
   updateFps()
+}
+
+function mapNoseToCursor(nose) {
+  const center = state.noseCenter.ready ? state.noseCenter : { x: 0.5, y: 0.5 }
+  const dx = nose.x - center.x
+  const dy = nose.y - center.y
+  const deadX = 0.012
+  const deadY = 0.01
+  const shapedX = shapeAxis(Math.abs(dx) < deadX ? 0 : dx, 2.9 * state.noseGain)
+  const shapedY = shapeAxis(Math.abs(dy) < deadY ? 0 : dy, 4.8 * state.noseGain)
+
+  return {
+    x: clamp(0.5 + shapedX, 0.02, 0.98),
+    y: clamp(0.5 + shapedY, 0.02, 0.98)
+  }
+}
+
+function shapeAxis(value, gain) {
+  const sign = value < 0 ? -1 : 1
+  const magnitude = Math.abs(value)
+  return sign * Math.min(0.48, (magnitude * gain) + (magnitude * magnitude * gain * 5.2))
 }
 
 function moveCursor(point) {
@@ -298,7 +343,7 @@ function updateModeUI() {
   modeButton.textContent = state.mode === "hand" ? "Hand" : "Nose"
   actionTitle.textContent = state.mode === "hand" ? "Pinch" : "Dwell"
   actionText.textContent = state.mode === "hand" ? "open" : "dwell"
-  setStatus(state.mode === "hand" ? "Hand mode" : "Nose mode")
+  setStatus(state.mode === "hand" ? "Hand mode" : `Nose mode gain ${state.noseGain.toFixed(1)}`)
 }
 
 function cellFromPoint(point) {

@@ -185,7 +185,8 @@ p {
   transform: translate(-50%, -50%);
 }
 
-.intent {
+.intent,
+.nose-controls {
   margin-top: 22px;
   padding: 18px;
   border: 1px solid var(--line);
@@ -227,6 +228,16 @@ p {
   border-radius: 999px;
   background: var(--accent);
   transition: width 80ms linear;
+}
+
+.tuning-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 10px;
+}
+
+.tuning-grid button {
+  min-height: 44px;
 }
 
 .metrics {

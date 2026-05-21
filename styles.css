@@ -185,6 +185,33 @@ p {
   transform: translate(-50%, -50%);
 }
 
+.center-target {
+  position: absolute;
+  z-index: 2;
+  left: 50%;
+  top: 50%;
+  width: 104px;
+  height: 104px;
+  margin-left: -52px;
+  margin-top: -52px;
+  border: 3px dashed rgba(251, 191, 36, 0.88);
+  border-radius: 50%;
+  background: rgba(251, 191, 36, 0.08);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 120ms linear, transform 120ms linear;
+}
+
+.center-target.visible {
+  opacity: 1;
+}
+
+.center-target.inside {
+  transform: scale(0.86);
+  border-style: solid;
+  background: rgba(20, 184, 166, 0.14);
+}
+
 .intent,
 .nose-controls {
   margin-top: 22px;

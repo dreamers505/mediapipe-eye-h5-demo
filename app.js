@@ -14,6 +14,7 @@ const noseCenterButton = document.querySelector("#noseCenter")
 const noseLessButton = document.querySelector("#noseLess")
 const noseMoreButton = document.querySelector("#noseMore")
 const cursor = document.querySelector("#cursor")
+const centerTarget = document.querySelector("#centerTarget")
 const gridButtons = [...document.querySelectorAll("[data-cell]")]
 
 const metrics = {
@@ -254,7 +255,6 @@ function handleNose(result) {
   if (state.noseCalibrating || !state.noseCenter.ready) {
     drawNose(face)
     updateNoseCalibration(rawNose)
-    moveCursor({ x: 0.5, y: 0.5 })
     updateFps()
     return
   }
@@ -300,14 +300,19 @@ function startNoseCalibration() {
   actionTitle.textContent = "Centering"
   actionText.textContent = "hold"
   actionFill.style.width = "0%"
+  centerTarget.classList.add("visible")
+  centerTarget.classList.remove("inside")
   setStatus("Put your nose at center")
 }
 
 function updateNoseCalibration(nose) {
+  const preview = previewNoseCentering(nose)
+  moveCursor(preview.point)
+
   state.calibrationSamples.push(nose)
   if (state.calibrationSamples.length > 8) state.calibrationSamples.shift()
 
-  const stable = isStable(state.calibrationSamples, 0.012)
+  const stable = preview.inside && isStable(state.calibrationSamples, 0.012)
   if (stable) {
     state.calibrationCount = Math.min(state.calibrationCount + 1, state.calibrationAfter)
   } else {
@@ -327,10 +332,27 @@ function updateNoseCalibration(nose) {
     actionTitle.textContent = "Dwell"
     actionText.textContent = "dwell"
     actionFill.style.width = "0%"
+    centerTarget.classList.remove("visible")
+    centerTarget.classList.remove("inside")
     setStatus(`Nose centered · gain ${state.noseGain.toFixed(1)}`)
   } else {
-    setStatus("Hold nose at center")
+    setStatus(preview.inside ? "Hold steady" : "Move nose to center")
   }
+}
+
+function previewNoseCentering(nose) {
+  const dx = nose.x - 0.5
+  const dy = nose.y - 0.5
+  const point = {
+    x: clamp(0.5 + dx * 1.8, 0.18, 0.82),
+    y: clamp(0.5 + dy * 2.2, 0.18, 0.82)
+  }
+  const inside = Math.abs(point.x - 0.5) < 0.085 && Math.abs(point.y - 0.5) < 0.085
+
+  centerTarget.classList.add("visible")
+  centerTarget.classList.toggle("inside", inside)
+
+  return { point, inside }
 }
 
 function isStable(samples, tolerance) {

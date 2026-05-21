@@ -419,8 +419,8 @@ function applyGridMagnet(point) {
   const dx = center.x - point.x
   const dy = center.y - point.y
   const distanceToCenter = Math.hypot(dx, dy)
-  const radius = 0.18
-  const pull = distanceToCenter < radius ? (1 - (distanceToCenter / radius)) * 0.18 : 0
+  const radius = 0.22
+  const pull = distanceToCenter < radius ? (1 - (distanceToCenter / radius)) * 0.28 : 0
 
   return {
     x: clamp(point.x + dx * pull, 0.02, 0.98),

@@ -40,6 +40,7 @@ const state = {
   fpsAt: performance.now(),
   activeCell: 5,
   confirmedCell: 0,
+  confirmedFrames: 0,
   cursor: { x: 0.5, y: 0.5 },
   handCursor: { x: 0.5, y: 0.5 },
   noseCursor: { x: 0.5, y: 0.5 },
@@ -49,7 +50,9 @@ const state = {
   dwellCount: 0,
   dwellAfter: 18,
   blinkCount: 0,
-  blinkAfter: 2,
+  blinkAfter: 3,
+  blinkWasClosed: false,
+  eyeOpenBaseline: 0,
   clickCooldown: 0,
   noseCenter: { x: 0.5, y: 0.5, ready: false },
   lastNose: { x: 0.5, y: 0.5 },
@@ -298,6 +301,9 @@ function startNoseCalibration() {
   state.calibrationCount = 0
   state.noseCursor = { x: 0.5, y: 0.5 }
   state.confirmedCell = 0
+  state.confirmedFrames = 0
+  state.blinkWasClosed = false
+  state.eyeOpenBaseline = 0
   moveCursor({ x: 0.5, y: 0.5 })
   actionTitle.textContent = "Centering"
   actionText.textContent = "hold"
@@ -331,12 +337,12 @@ function updateNoseCalibration(nose) {
     state.noseCalibrating = false
     state.calibrationSamples = []
     state.calibrationCount = 0
-    actionTitle.textContent = "Dwell"
-    actionText.textContent = "dwell"
+    actionTitle.textContent = "Blink"
+    actionText.textContent = "open"
     actionFill.style.width = "0%"
     centerTarget.classList.remove("visible")
     centerTarget.classList.remove("inside")
-    setStatus(`Nose centered · gain ${state.noseGain.toFixed(1)}`)
+    setStatus(`Nose centered, gain ${state.noseGain.toFixed(1)}`)
   } else {
     setStatus(preview.inside ? "Hold steady" : "Move nose to center")
   }
@@ -388,12 +394,14 @@ function moveCursor(point) {
   const cell = cellFromPoint(state.cursor)
   state.activeCell = cell
 
+  const confirmedCell = state.confirmedFrames > 0 ? state.confirmedCell : 0
   gridButtons.forEach((button) => {
     const value = Number(button.dataset.cell)
     button.classList.toggle("candidate", value === cell)
     button.classList.toggle("active", value === cell)
-    button.classList.toggle("confirmed", value === state.confirmedCell)
+    button.classList.toggle("confirmed", value === confirmedCell)
   })
+  if (state.confirmedFrames > 0) state.confirmedFrames -= 1
 
   metrics.cell.textContent = String(cell)
   metrics.x.textContent = state.cursor.x.toFixed(2)
@@ -410,7 +418,7 @@ function updateAction(active, text, threshold) {
   }
 
   if (active && state.actionCount >= threshold && state.clickCooldown <= 0) {
-    state.confirmedCell = state.activeCell
+    confirmActiveCell()
     state.clickCooldown = 12
   }
 
@@ -429,7 +437,7 @@ function updateDwell() {
   }
 
   if (state.dwellCount >= state.dwellAfter) {
-    state.confirmedCell = state.activeCell
+    confirmActiveCell()
   }
 
   const percent = Math.round((state.dwellCount / state.dwellAfter) * 100)
@@ -442,23 +450,42 @@ function updateBlink(face) {
   if (state.clickCooldown > 0) state.clickCooldown -= 1
 
   const openness = eyeOpenness(face)
-  const blinking = openness < 0.18
+  if (!state.eyeOpenBaseline) {
+    state.eyeOpenBaseline = openness
+  }
 
-  if (blinking) {
+  const openThreshold = Math.max(0.16, state.eyeOpenBaseline * 0.72)
+  const closeThreshold = Math.max(0.1, state.eyeOpenBaseline * 0.48)
+  const closed = openness < closeThreshold
+
+  if (closed) {
     state.blinkCount = Math.min(state.blinkCount + 1, state.blinkAfter)
   } else {
+    if (openness > openThreshold) {
+      state.eyeOpenBaseline = (state.eyeOpenBaseline * 0.96) + (openness * 0.04)
+    }
+    if (state.blinkWasClosed && state.blinkCount >= state.blinkAfter && state.clickCooldown <= 0) {
+      confirmActiveCell()
+      state.clickCooldown = 14
+    }
     state.blinkCount = 0
   }
 
-  if (blinking && state.blinkCount >= state.blinkAfter && state.clickCooldown <= 0) {
-    state.confirmedCell = state.activeCell
-    state.clickCooldown = 14
+  if (state.blinkCount >= state.blinkAfter) {
+    state.blinkWasClosed = true
+  } else if (!closed) {
+    state.blinkWasClosed = false
   }
 
   const percent = Math.round((state.blinkCount / state.blinkAfter) * 100)
-  actionText.textContent = blinking ? "blink" : "open"
+  actionText.textContent = closed ? "closed" : "open"
   actionFill.style.width = `${percent}%`
-  metrics.action.textContent = blinking ? "Yes" : "No"
+  metrics.action.textContent = state.blinkWasClosed ? "Release" : "No"
+}
+
+function confirmActiveCell() {
+  state.confirmedCell = state.activeCell
+  state.confirmedFrames = 12
 }
 
 function eyeOpenness(face) {
@@ -480,6 +507,7 @@ function resetAction() {
   state.actionCount = 0
   state.dwellCount = 0
   state.blinkCount = 0
+  state.blinkWasClosed = false
   state.dwellCell = state.activeCell
   actionFill.style.width = "0%"
 }

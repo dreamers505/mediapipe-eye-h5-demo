@@ -48,6 +48,8 @@ const state = {
   dwellCell: 5,
   dwellCount: 0,
   dwellAfter: 18,
+  blinkCount: 0,
+  blinkAfter: 2,
   clickCooldown: 0,
   noseCenter: { x: 0.5, y: 0.5, ready: false },
   lastNose: { x: 0.5, y: 0.5 },
@@ -264,7 +266,7 @@ function handleNose(result) {
   state.noseCursor.x = state.noseCursor.x * 0.38 + nosePoint.x * 0.62
   state.noseCursor.y = state.noseCursor.y * 0.32 + nosePoint.y * 0.68
   moveCursor(state.noseCursor)
-  updateDwell()
+  updateBlink(face)
   updateFps()
 }
 
@@ -436,17 +438,56 @@ function updateDwell() {
   metrics.action.textContent = percent >= 100 ? "Yes" : "No"
 }
 
+function updateBlink(face) {
+  if (state.clickCooldown > 0) state.clickCooldown -= 1
+
+  const openness = eyeOpenness(face)
+  const blinking = openness < 0.18
+
+  if (blinking) {
+    state.blinkCount = Math.min(state.blinkCount + 1, state.blinkAfter)
+  } else {
+    state.blinkCount = 0
+  }
+
+  if (blinking && state.blinkCount >= state.blinkAfter && state.clickCooldown <= 0) {
+    state.confirmedCell = state.activeCell
+    state.clickCooldown = 14
+  }
+
+  const percent = Math.round((state.blinkCount / state.blinkAfter) * 100)
+  actionText.textContent = blinking ? "blink" : "open"
+  actionFill.style.width = `${percent}%`
+  metrics.action.textContent = blinking ? "Yes" : "No"
+}
+
+function eyeOpenness(face) {
+  const right = eyeRatio(face, 33, 133, 159, 145)
+  const left = eyeRatio(face, 263, 362, 386, 374)
+  return (right + left) / 2
+}
+
+function eyeRatio(face, outerIndex, innerIndex, topIndex, bottomIndex) {
+  const outer = face[outerIndex]
+  const inner = face[innerIndex]
+  const top = face[topIndex]
+  const bottom = face[bottomIndex]
+  if (!outer || !inner || !top || !bottom) return 1
+  return distance(top, bottom) / Math.max(0.001, distance(outer, inner))
+}
+
 function resetAction() {
   state.actionCount = 0
   state.dwellCount = 0
+  state.blinkCount = 0
   state.dwellCell = state.activeCell
   actionFill.style.width = "0%"
 }
 
 function updateModeUI() {
   modeButton.textContent = state.mode === "hand" ? "Hand" : "Nose"
-  actionTitle.textContent = state.mode === "hand" ? "Pinch" : (state.noseCalibrating ? "Centering" : "Dwell")
-  actionText.textContent = state.mode === "hand" ? "open" : (state.noseCalibrating ? "hold" : "dwell")
+  actionTitle.textContent = state.mode === "hand" ? "Pinch" : (state.noseCalibrating ? "Centering" : "Blink")
+  actionText.textContent = state.mode === "hand" ? "open" : (state.noseCalibrating ? "hold" : "open")
   setStatus(state.mode === "hand" ? "Hand mode" : `Nose mode gain ${state.noseGain.toFixed(1)}`)
 }
 

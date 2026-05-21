@@ -50,18 +50,22 @@ const state = {
   clickCooldown: 0,
   noseCenter: { x: 0.5, y: 0.5, ready: false },
   lastNose: { x: 0.5, y: 0.5 },
-  noseGain: 1.6
+  noseGain: 1.6,
+  noseCalibrating: true,
+  calibrationSamples: [],
+  calibrationCount: 0,
+  calibrationAfter: 24
 }
 
 startButton.addEventListener("click", start)
 modeButton.addEventListener("click", () => {
   state.mode = state.mode === "hand" ? "nose" : "hand"
   resetAction()
+  if (state.mode === "nose") startNoseCalibration()
   updateModeUI()
 })
 noseCenterButton.addEventListener("click", () => {
-  state.noseCenter = { ...state.lastNose, ready: true }
-  setStatus("Nose centered")
+  startNoseCalibration()
 })
 noseLessButton.addEventListener("click", () => {
   state.noseGain = Math.max(0.6, state.noseGain - 0.2)
@@ -246,8 +250,13 @@ function handleNose(result) {
     y: clamp(nose.y, 0.02, 0.98)
   }
   state.lastNose = rawNose
-  if (!state.noseCenter.ready) {
-    state.noseCenter = { ...rawNose, ready: true }
+
+  if (state.noseCalibrating || !state.noseCenter.ready) {
+    drawNose(face)
+    updateNoseCalibration(rawNose)
+    moveCursor({ x: 0.5, y: 0.5 })
+    updateFps()
+    return
   }
 
   drawNose(face)
@@ -278,6 +287,71 @@ function shapeAxis(value, gain) {
   const sign = value < 0 ? -1 : 1
   const magnitude = Math.abs(value)
   return sign * Math.min(0.48, (magnitude * gain) + (magnitude * magnitude * gain * 18))
+}
+
+function startNoseCalibration() {
+  state.noseCalibrating = true
+  state.noseCenter = { x: 0.5, y: 0.5, ready: false }
+  state.calibrationSamples = []
+  state.calibrationCount = 0
+  state.noseCursor = { x: 0.5, y: 0.5 }
+  state.confirmedCell = 0
+  moveCursor({ x: 0.5, y: 0.5 })
+  actionTitle.textContent = "Centering"
+  actionText.textContent = "hold"
+  actionFill.style.width = "0%"
+  setStatus("Put your nose at center")
+}
+
+function updateNoseCalibration(nose) {
+  state.calibrationSamples.push(nose)
+  if (state.calibrationSamples.length > 8) state.calibrationSamples.shift()
+
+  const stable = isStable(state.calibrationSamples, 0.012)
+  if (stable) {
+    state.calibrationCount = Math.min(state.calibrationCount + 1, state.calibrationAfter)
+  } else {
+    state.calibrationCount = Math.max(0, state.calibrationCount - 2)
+  }
+
+  const percent = Math.round((state.calibrationCount / state.calibrationAfter) * 100)
+  actionFill.style.width = `${percent}%`
+  actionText.textContent = `${percent}%`
+
+  if (state.calibrationCount >= state.calibrationAfter) {
+    const center = averagePoint(state.calibrationSamples)
+    state.noseCenter = { ...center, ready: true }
+    state.noseCalibrating = false
+    state.calibrationSamples = []
+    state.calibrationCount = 0
+    actionTitle.textContent = "Dwell"
+    actionText.textContent = "dwell"
+    actionFill.style.width = "0%"
+    setStatus(`Nose centered · gain ${state.noseGain.toFixed(1)}`)
+  } else {
+    setStatus("Hold nose at center")
+  }
+}
+
+function isStable(samples, tolerance) {
+  if (samples.length < 5) return false
+  const center = averagePoint(samples)
+  return samples.every((point) => (
+    Math.abs(point.x - center.x) <= tolerance &&
+    Math.abs(point.y - center.y) <= tolerance
+  ))
+}
+
+function averagePoint(points) {
+  const total = points.reduce((sum, point) => ({
+    x: sum.x + point.x,
+    y: sum.y + point.y
+  }), { x: 0, y: 0 })
+
+  return {
+    x: total.x / points.length,
+    y: total.y / points.length
+  }
 }
 
 function moveCursor(point) {
@@ -349,8 +423,8 @@ function resetAction() {
 
 function updateModeUI() {
   modeButton.textContent = state.mode === "hand" ? "Hand" : "Nose"
-  actionTitle.textContent = state.mode === "hand" ? "Pinch" : "Dwell"
-  actionText.textContent = state.mode === "hand" ? "open" : "dwell"
+  actionTitle.textContent = state.mode === "hand" ? "Pinch" : (state.noseCalibrating ? "Centering" : "Dwell")
+  actionText.textContent = state.mode === "hand" ? "open" : (state.noseCalibrating ? "hold" : "dwell")
   setStatus(state.mode === "hand" ? "Hand mode" : `Nose mode gain ${state.noseGain.toFixed(1)}`)
 }
 

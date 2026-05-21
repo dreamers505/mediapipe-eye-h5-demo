@@ -42,6 +42,7 @@ const state = {
   confirmedCell: 0,
   confirmedFrames: 0,
   cursor: { x: 0.5, y: 0.5 },
+  magneticCursor: { x: 0.5, y: 0.5 },
   handCursor: { x: 0.5, y: 0.5 },
   noseCursor: { x: 0.5, y: 0.5 },
   actionCount: 0,
@@ -300,6 +301,7 @@ function startNoseCalibration() {
   state.calibrationSamples = []
   state.calibrationCount = 0
   state.noseCursor = { x: 0.5, y: 0.5 }
+  state.magneticCursor = { x: 0.5, y: 0.5 }
   state.confirmedCell = 0
   state.confirmedFrames = 0
   state.blinkWasClosed = false
@@ -385,8 +387,11 @@ function averagePoint(points) {
 }
 
 function moveCursor(point) {
-  state.cursor.x = point.x
-  state.cursor.y = point.y
+  const guidedPoint = applyGridMagnet(point)
+  state.magneticCursor.x = (state.magneticCursor.x * 0.35) + (guidedPoint.x * 0.65)
+  state.magneticCursor.y = (state.magneticCursor.y * 0.35) + (guidedPoint.y * 0.65)
+  state.cursor.x = state.magneticCursor.x
+  state.cursor.y = state.magneticCursor.y
 
   cursor.style.left = `${state.cursor.x * 100}%`
   cursor.style.top = `${state.cursor.y * 100}%`
@@ -406,6 +411,31 @@ function moveCursor(point) {
   metrics.cell.textContent = String(cell)
   metrics.x.textContent = state.cursor.x.toFixed(2)
   metrics.y.textContent = state.cursor.y.toFixed(2)
+}
+
+function applyGridMagnet(point) {
+  const cell = cellFromPoint(point)
+  const center = centerFromCell(cell)
+  const dx = center.x - point.x
+  const dy = center.y - point.y
+  const distanceToCenter = Math.hypot(dx, dy)
+  const radius = 0.18
+  const pull = distanceToCenter < radius ? (1 - (distanceToCenter / radius)) * 0.18 : 0
+
+  return {
+    x: clamp(point.x + dx * pull, 0.02, 0.98),
+    y: clamp(point.y + dy * pull, 0.02, 0.98)
+  }
+}
+
+function centerFromCell(cell) {
+  const index = cell - 1
+  const column = index % 3
+  const row = Math.floor(index / 3)
+  return {
+    x: (column + 0.5) / 3,
+    y: (row + 0.5) / 3
+  }
 }
 
 function updateAction(active, text, threshold) {
